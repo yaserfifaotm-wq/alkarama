@@ -35,6 +35,11 @@
                     <span class="status-dot"></span>
                     <span class="status-text">وضع تجريبي محلي</span>
                 </div>
+                <!-- Employees Management Button for Supervisor -->
+                <button class="btn btn-secondary" onclick="openEmployeesModal()" title="إدارة وإضافة أسماء الموظفين للمشرف">
+                    <i class="fa-solid fa-users-gear"></i>
+                    <span>إدارة الموظفين</span>
+                </button>
                 <!-- Admin button -->
                 <button class="btn btn-secondary" onclick="openSettingsModal()">
                     <i class="fa-solid fa-gear"></i>
@@ -47,12 +52,18 @@
         <div id="admin-mode-banner" class="admin-mode-banner d-none">
             <div class="admin-banner-content">
                 <i class="fa-solid fa-user-shield"></i>
-                <span>وضع المسؤول نشط 🛠️ (يمكنك الحجز والتعديل دون أي قيود زمنية أو شهرية)</span>
+                <span>وضع المسؤول نشط 🛠️ (يمكنك الحجز وإدارة أسماء الموظفين والتعديل دون أي قيود)</span>
             </div>
-            <button class="btn btn-logout-admin" onclick="exitAdminMode()">
-                <i class="fa-solid fa-right-from-bracket"></i>
-                <span>خروج المسؤول</span>
-            </button>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <button class="btn btn-sm" onclick="openEmployeesModal()" style="background: #ffffff; color: #1e3c72; font-weight: 700; border-radius: var(--radius-sm); padding: 6px 12px; font-size: 12px; display: flex; align-items: center; gap: 6px; border: none; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.15);">
+                    <i class="fa-solid fa-user-plus" style="color: #10b981;"></i>
+                    <span>إضافة / إدارة الموظفين</span>
+                </button>
+                <button class="btn btn-logout-admin" onclick="exitAdminMode()">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    <span>خروج المسؤول</span>
+                </button>
+            </div>
         </div>
 
         <!-- Main Dashboard Content -->
@@ -240,6 +251,16 @@
                         <label for="disable-time-restrictions" style="cursor: pointer; font-size: 13px; font-weight: 700;">تعطيل قيود وقت الحجز (للمسؤول)</label>
                     </div>
 
+                    <!-- Manage Employees Section in Admin Settings -->
+                    <div class="form-group border-top pt-3">
+                        <label><i class="fa-solid fa-users-gear" style="color: var(--primary-color);"></i> دليل موظفي المركز:</label>
+                        <p class="tab-description" style="margin-bottom: 10px;">إضافة موظفين جدد إلى قائمة المركز الرسمية، أو حذف أسماء عند الحاجة.</p>
+                        <button type="button" class="btn btn-outline-primary btn-block" onclick="closeSettingsModal(); openEmployeesModal();" style="display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 15px; font-weight: 700; border-radius: var(--radius-sm);">
+                            <i class="fa-solid fa-user-plus"></i>
+                            <span>فتح نافذة إضافة وإدارة أسماء الموظفين</span>
+                        </button>
+                    </div>
+
                     <div class="form-group border-top pt-3">
                         <label>إدارة البيانات الشاملة:</label>
                         <div class="data-actions">
@@ -263,6 +284,60 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeSettingsModal()">إلغاء</button>
                 <button class="btn btn-primary" onclick="saveSystemSettings()">حفظ الإعدادات</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Employees Management Modal (Supervisor / Admin Only) -->
+    <div class="modal-overlay d-none" id="employees-modal">
+        <div class="modal-card glass-card animate-slide-up" style="max-width: 600px;">
+            <div class="modal-header">
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <i class="fa-solid fa-users-gear" style="color: var(--primary-color); font-size: 20px;"></i>
+                    <h3 style="margin: 0;">إدارة أسماء موظفي المركز</h3>
+                    <span class="badge" id="employees-total-badge" style="background: #e0e7ff; color: #3730a3; font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 700;">81 موظف</span>
+                </div>
+                <button class="close-modal-btn" onclick="closeEmployeesModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <!-- Add New Employee Box -->
+                <div class="add-employee-card" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: var(--radius-sm); padding: 16px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                    <label for="new-employee-name-input" style="display: block; font-weight: 700; margin-bottom: 8px; color: var(--text-main); font-size: 14px;">
+                        <i class="fa-solid fa-user-plus" style="color: var(--success-color); margin-left: 5px;"></i> إضافة موظف جديد إلى المركز:
+                    </label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="new-employee-name-input" placeholder="اكتب اسم الموظف الثلاثي الجديد..." style="flex: 1; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: var(--radius-sm); font-size: 14px; outline: none;" onkeydown="if(event.key==='Enter'){event.preventDefault();addNewEmployee();}">
+                        <button type="button" class="btn btn-primary" id="btn-add-employee" onclick="addNewEmployee()" style="white-space: nowrap; padding: 10px 18px; font-weight: 700; display: flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-plus"></i>
+                            <span>إضافة موظف</span>
+                        </button>
+                    </div>
+                    <small style="display: block; margin-top: 8px; color: var(--text-muted); font-size: 12px; line-height: 1.5;">
+                        <i class="fa-solid fa-cloud-arrow-up" style="color: #3b82f6;"></i> بمجرد الإضافة، يتم حفظ الاسم سحابياً ويظهر فوراً في قائمة المقترحات لجميع الموظفين على هواتفهم.
+                    </small>
+                </div>
+
+                <!-- Search and Filter Bar -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; flex-wrap: wrap;">
+                    <label style="font-weight: 700; font-size: 13px; color: var(--text-main); white-space: nowrap;">
+                        <i class="fa-solid fa-list-check"></i> قائمة الموظفين المعتمدة:
+                    </label>
+                    <div style="position: relative; flex: 1; min-width: 180px; max-width: 260px;">
+                        <input type="text" id="employee-search-filter" placeholder="بحث سريع في الأسماء..." oninput="filterEmployeesManagementList()" style="width: 100%; padding: 7px 12px 7px 32px; border: 1px solid #cbd5e1; border-radius: var(--radius-sm); font-size: 13px; outline: none;">
+                        <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 12px;"></i>
+                    </div>
+                </div>
+
+                <!-- Employees List Container -->
+                <div id="employees-management-list" style="max-height: 280px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: var(--radius-sm); background: #ffffff;">
+                    <!-- Dynamic employee items inject here -->
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 12px; color: var(--text-muted);">
+                    <i class="fa-solid fa-shield-halved" style="color: #f59e0b;"></i> هذه اللوحة متاحة للمشرف فقط
+                </span>
+                <button class="btn btn-secondary" onclick="closeEmployeesModal()">إغلاق</button>
             </div>
         </div>
     </div>

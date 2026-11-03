@@ -1448,3 +1448,95 @@ body {
     background: var(--primary-color);
     color: white;
 }
+
+/* Employees Management Modal Styling */
+.employee-manage-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid #f1f5f9;
+    transition: background 0.15s ease;
+}
+
+.employee-manage-row:last-child {
+    border-bottom: none;
+}
+
+.employee-manage-row:hover {
+    background: #f8fafc;
+}
+
+.employee-info-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.employee-index {
+    font-size: 11px;
+    font-weight: 700;
+    color: #94a3b8;
+    min-width: 24px;
+    text-align: center;
+}
+
+.employee-name-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.employee-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 600;
+}
+
+.employee-badge-new {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+}
+
+.employee-badge-default {
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.btn-delete-employee {
+    background: transparent;
+    border: none;
+    color: #ef4444;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.btn-delete-employee:hover {
+    background: #fee2e2;
+    color: #b91c1c;
+    transform: scale(1.05);
+}
+
+@media (max-width: 576px) {
+    #employees-modal .modal-card {
+        margin: 10px;
+        max-height: 90vh;
+    }
+    
+    .add-employee-card > div {
+        flex-direction: column;
+    }
+    
+    .add-employee-card .btn-primary {
+        justify-content: center;
+    }
+}
+

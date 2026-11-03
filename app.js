@@ -26,7 +26,11 @@ let appState = {
     disableTimeRestrictions: false, // لتعطيل قيود وقت الحجز للمسؤول
     isAdminMode: false, // حالة تسجيل دخول المسؤول للحجز وتفادي القيود بالكامل
     isFirebaseInitialized: false,
-    dbRef: null // مرجع قاعدة بيانات Firebase
+    dbRef: null, // مرجع قاعدة بيانات Firebase للحجوزات
+    customEmployees: [], // قائمة الموظفين المضافين ديناميكياً [{ id, name }]
+    deletedOfficialEmployees: [], // الموظفون المستبعدون من القائمة الأساسية
+    customEmployeesRef: null,
+    deletedOfficialRef: null
 };
 
 // أسماء الأيام العربية للمطابقة
@@ -122,6 +126,28 @@ const OFFICIAL_EMPLOYEES = [
     "ارشد حسن علي"
 ];
 
+// دالة لجلب القائمة المعتمدة الكاملة لكافة الموظفين (الأساسية + المضافة سحابياً - المستبعدة)
+function getAllEmployeesList() {
+    const deletedNormalized = (appState.deletedOfficialEmployees || []).map(name => normalizeArabicName(name));
+    
+    // تصفية القائمة الرسمية الأساسية
+    const baseList = OFFICIAL_EMPLOYEES.filter(name => !deletedNormalized.includes(normalizeArabicName(name)));
+    
+    // إضافة الأسماء المضافة ديناميكياً من المشرف
+    const customNames = (appState.customEmployees || []).map(item => item.name);
+    
+    const combined = [...baseList];
+    customNames.forEach(name => {
+        if (!name) return;
+        const norm = normalizeArabicName(name);
+        if (!combined.some(existing => normalizeArabicName(existing) === norm)) {
+            combined.push(name);
+        }
+    });
+    
+    return combined;
+}
+
 // تهيئة وإعداد الاقتراحات التلقائية المخصصة (نافذة صغيرة أسفل حقل كتابة الاسم)
 function setupEmployeesDatalist() {
     const nameInput = document.getElementById("employee-name");
@@ -183,9 +209,9 @@ function setupEmployeesDatalist() {
             return;
         }
 
-        // تصفية الأسماء بناءً على المدخل المنظف
+        // تصفية الأسماء بناءً على المدخل المنظف من القائمة الشاملة
         const normalizedInput = normalizeArabicName(value);
-        const matches = OFFICIAL_EMPLOYEES.filter(name => 
+        const matches = getAllEmployeesList().filter(name => 
             normalizeArabicName(name).includes(normalizedInput)
         );
 
@@ -197,7 +223,7 @@ function setupEmployeesDatalist() {
         const value = nameInput.value.trim();
         if (value.length >= 1) {
             const normalizedInput = normalizeArabicName(value);
-            const matches = OFFICIAL_EMPLOYEES.filter(name => 
+            const matches = getAllEmployeesList().filter(name => 
                 normalizeArabicName(name).includes(normalizedInput)
             );
             renderSuggestions(matches);
@@ -305,10 +331,12 @@ function setupEventListeners() {
     dbRadios.forEach(radio => {
         radio.addEventListener("change", (e) => {
             const fields = document.getElementById("firebase-config-fields");
-            if (e.target.value === "firebase") {
-                fields.classList.remove("d-none");
-            } else {
-                fields.classList.add("d-none");
+            if (fields) {
+                if (e.target.value === "firebase") {
+                    fields.classList.remove("d-none");
+                } else {
+                    fields.classList.add("d-none");
+                }
             }
         });
     });
@@ -511,6 +539,8 @@ function initializeFirebase() {
         firebase.initializeApp(appState.firebaseConfig);
         appState.isFirebaseInitialized = true;
         appState.dbRef = firebase.database().ref("bookings");
+        appState.customEmployeesRef = firebase.database().ref("custom_employees");
+        appState.deletedOfficialRef = firebase.database().ref("deleted_official_employees");
         
         updateDbStatusBadge("cloud");
         attachFirebaseListeners();
@@ -532,7 +562,7 @@ function attachFirebaseListeners() {
     // إلغاء أي مستمعين سابقين لمنع التكرار
     appState.dbRef.off();
 
-    // سماع التحديثات
+    // سماع تحديثات الحجوزات
     appState.dbRef.on("value", (snapshot) => {
         const val = snapshot.val();
         appState.bookings = val || {};
@@ -541,6 +571,41 @@ function attachFirebaseListeners() {
         console.error("خطأ في مزامنة Firebase:", error);
         updateDbStatusBadge("error");
     });
+
+    // سماع تحديثات قائمة الموظفين المضافين سحابياً
+    if (appState.customEmployeesRef) {
+        appState.customEmployeesRef.off();
+        appState.customEmployeesRef.on("value", (snapshot) => {
+            const val = snapshot.val();
+            const list = [];
+            if (val) {
+                Object.entries(val).forEach(([key, item]) => {
+                    const name = typeof item === 'object' ? item.name : item;
+                    if (name && typeof name === 'string' && name.trim()) {
+                        list.push({ id: key, name: name.trim() });
+                    }
+                });
+            }
+            appState.customEmployees = list;
+            saveLocalCustomEmployees();
+            renderEmployeesManagementList();
+        }, (error) => {
+            console.error("خطأ في مزامنة الموظفين سحابياً:", error);
+        });
+    }
+
+    // سماع تحديثات الموظفين المستبعدين
+    if (appState.deletedOfficialRef) {
+        appState.deletedOfficialRef.off();
+        appState.deletedOfficialRef.on("value", (snapshot) => {
+            const val = snapshot.val();
+            appState.deletedOfficialEmployees = Array.isArray(val) ? val : [];
+            saveLocalDeletedOfficialEmployees();
+            renderEmployeesManagementList();
+        }, (error) => {
+            console.error("خطأ في مزامنة الموظفين المستبعدين:", error);
+        });
+    }
 }
 
 // تحديث شارة حالة قاعدة البيانات في أعلى الصفحة
@@ -593,6 +658,38 @@ function loadSettings() {
         } catch (e) {
             console.error("خطأ في تحميل الإعدادات", e);
         }
+    }
+
+    // تحميل الموظفين المخزنين محلياً كنسخة احتياطية
+    try {
+        const storedCustom = localStorage.getItem("alkarama_custom_employees");
+        if (storedCustom) {
+            appState.customEmployees = JSON.parse(storedCustom) || [];
+        }
+        const storedDeleted = localStorage.getItem("alkarama_deleted_official");
+        if (storedDeleted) {
+            appState.deletedOfficialEmployees = JSON.parse(storedDeleted) || [];
+        }
+    } catch (e) {
+        console.error("خطأ في تحميل الموظفين المحليين", e);
+    }
+}
+
+// حفظ الموظفين المضافين محلياً
+function saveLocalCustomEmployees() {
+    try {
+        localStorage.setItem("alkarama_custom_employees", JSON.stringify(appState.customEmployees || []));
+    } catch (e) {
+        console.error("خطأ في حفظ الموظفين محلياً:", e);
+    }
+}
+
+// حفظ الموظفين المستبعدين محلياً
+function saveLocalDeletedOfficialEmployees() {
+    try {
+        localStorage.setItem("alkarama_deleted_official", JSON.stringify(appState.deletedOfficialEmployees || []));
+    } catch (e) {
+        console.error("خطأ في حفظ المستبعدين محلياً:", e);
     }
 }
 
@@ -1004,7 +1101,7 @@ function handleBookingSubmit(event) {
     let matchedOfficialName = null;
     const normalizedInputName = normalizeArabicName(name);
     
-    for (const officialName of OFFICIAL_EMPLOYEES) {
+    for (const officialName of getAllEmployeesList()) {
         if (normalizeArabicName(officialName) === normalizedInputName) {
             matchedOfficialName = officialName;
             break;
@@ -1339,4 +1436,274 @@ function printSelectedDayReport() {
 
     // فتح نافذة طباعة المتصفح
     window.print();
+}
+
+// ==========================================
+// 👥 إدارة أسماء موظفي المركز (خاص بالمشرف)
+// ==========================================
+
+// فتح نافذة إدارة أسماء الموظفين مع التحقق من صلاحيات المشرف
+function openEmployeesModal() {
+    if (!appState.isAdminMode) {
+        const password = prompt("⚠️ هذه اللوحة مخصصة لمشرف النظام فقط.\nيرجى إدخال رمز مرور المشرف للمتابعة:");
+        if (password === null) return; // تم الإلغاء
+        
+        if (password !== appState.adminPasscode) {
+            alert("رمز مرور المشرف غير صحيح. تم رفض الوصول.");
+            return;
+        }
+        
+        // تفعيل وضع المسؤول
+        enterAdminMode();
+    }
+
+    renderEmployeesManagementList();
+    document.getElementById("employees-modal").classList.remove("d-none");
+    
+    // تركيز مؤشر الكتابة تلقائياً في حقل الاسم الجديد
+    setTimeout(() => {
+        const input = document.getElementById("new-employee-name-input");
+        if (input) input.focus();
+    }, 200);
+}
+
+// إغلاق نافذة إدارة الموظفين
+function closeEmployeesModal() {
+    document.getElementById("employees-modal").classList.add("d-none");
+    const searchInput = document.getElementById("employee-search-filter");
+    if (searchInput) searchInput.value = "";
+}
+
+// رسم قائمة الموظفين داخل النافذة مع خيار البحث
+function renderEmployeesManagementList(searchQuery = "") {
+    const listContainer = document.getElementById("employees-management-list");
+    const badgeCount = document.getElementById("employees-total-badge");
+    if (!listContainer) return;
+
+    const allNames = getAllEmployeesList();
+    if (badgeCount) {
+        badgeCount.textContent = `${allNames.length} موظف`;
+    }
+
+    // بناء مصفوفة الكائنات المدمجة (معرفات التخصيص للمضافين حديثاً)
+    const deletedNorm = (appState.deletedOfficialEmployees || []).map(n => normalizeArabicName(n));
+    let items = [];
+
+    // الموظفون الرسميون الأساسيون غير المستبعدين
+    OFFICIAL_EMPLOYEES.forEach(name => {
+        if (!deletedNorm.includes(normalizeArabicName(name))) {
+            items.push({ name: name, isCustom: false, customId: null });
+        }
+    });
+
+    // الموظفون المضافون ديناميكياً
+    (appState.customEmployees || []).forEach(emp => {
+        const norm = normalizeArabicName(emp.name);
+        if (!items.some(it => normalizeArabicName(it.name) === norm)) {
+            items.push({ name: emp.name, isCustom: true, customId: emp.id });
+        }
+    });
+
+    // تصفية نتائج البحث إن وجدت
+    const q = searchQuery ? normalizeArabicName(searchQuery.trim()) : "";
+    if (q) {
+        items = items.filter(item => normalizeArabicName(item.name).includes(q));
+    }
+
+    if (items.length === 0) {
+        listContainer.innerHTML = `
+            <div style="padding: 30px 20px; text-align: center; color: var(--text-muted);">
+                <i class="fa-solid fa-user-slash" style="font-size: 28px; margin-bottom: 8px; color: #cbd5e1; display: block;"></i>
+                <p style="margin: 0; font-size: 13px;">لا توجد أي أسماء مطابقة لكلمة البحث.</p>
+            </div>
+        `;
+        return;
+    }
+
+    listContainer.innerHTML = "";
+    items.forEach((item, index) => {
+        const row = document.createElement("div");
+        row.className = "employee-manage-row";
+        
+        const badgeHTML = item.isCustom 
+            ? `<span class="employee-badge employee-badge-new"><i class="fa-solid fa-sparkles"></i> مضاف جديداً</span>`
+            : `<span class="employee-badge employee-badge-default">معتمد</span>`;
+
+        row.innerHTML = `
+            <div class="employee-info-cell">
+                <span class="employee-index">${index + 1}</span>
+                <span class="employee-name-text">${escapeHTML(item.name)}</span>
+                ${badgeHTML}
+            </div>
+            <button type="button" class="btn-delete-employee" title="حذف الموظف من القائمة">
+                <i class="fa-solid fa-trash-can"></i>
+            </button>
+        `;
+
+        // زر الحذف
+        const deleteBtn = row.querySelector(".btn-delete-employee");
+        deleteBtn.addEventListener("click", () => {
+            deleteEmployee(item.name, item.customId);
+        });
+
+        listContainer.appendChild(row);
+    });
+}
+
+// تصفية القائمة أثناء كتابة المشرف في حقل البحث
+function filterEmployeesManagementList() {
+    const searchInput = document.getElementById("employee-search-filter");
+    const query = searchInput ? searchInput.value : "";
+    renderEmployeesManagementList(query);
+}
+
+// إضافة موظف جديد بواسطة المشرف
+function addNewEmployee() {
+    if (!appState.isAdminMode) {
+        const password = prompt("⚠️ يرجى إدخال رمز مرور المشرف لتأكيد إضافة الموظف:");
+        if (password === null) return;
+        if (password !== appState.adminPasscode) {
+            alert("رمز مرور المشرف غير صحيح. تم رفض الإضافة.");
+            return;
+        }
+        enterAdminMode();
+    }
+
+    const input = document.getElementById("new-employee-name-input");
+    if (!input) return;
+
+    const name = input.value.trim();
+    if (!name) {
+        alert("يرجى كتابة اسم الموظف.");
+        input.focus();
+        return;
+    }
+
+    const words = name.split(/\s+/).filter(Boolean);
+    if (words.length < 2) {
+        alert("يرجى إدخال الاسم الثنائي أو الثلاثي على الأقل للموظف لضمان وضوح السجلات.");
+        input.focus();
+        return;
+    }
+
+    const currentAll = getAllEmployeesList();
+    const normNew = normalizeArabicName(name);
+
+    if (currentAll.some(existing => normalizeArabicName(existing) === normNew)) {
+        alert(`عذراً! الموظف (${name}) مسجل بالفعل في قائمة موظفي المركز.`);
+        input.focus();
+        return;
+    }
+
+    // إذا كان الموظف مسجلاً سابقاً في القائمة الأساسية ومحذوفاً، نلغي حذفه
+    if (appState.deletedOfficialEmployees && appState.deletedOfficialEmployees.length > 0) {
+        const idx = appState.deletedOfficialEmployees.findIndex(d => normalizeArabicName(d) === normNew);
+        if (idx !== -1) {
+            appState.deletedOfficialEmployees.splice(idx, 1);
+            if (appState.dbMode === 'firebase' && appState.isFirebaseInitialized && appState.deletedOfficialRef) {
+                appState.deletedOfficialRef.set(appState.deletedOfficialEmployees);
+            }
+            saveLocalDeletedOfficialEmployees();
+            input.value = "";
+            alert(`تمت إعادة تفعيل الموظف (${name}) بنجاح.`);
+            renderEmployeesManagementList();
+            return;
+        }
+    }
+
+    const addBtn = document.getElementById("btn-add-employee");
+    if (addBtn) {
+        addBtn.disabled = true;
+        addBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> جاري الإضافة...`;
+    }
+
+    if (appState.dbMode === 'firebase' && appState.isFirebaseInitialized && appState.customEmployeesRef) {
+        // إضافة سحابية إلى Firebase
+        appState.customEmployeesRef.push({
+            name: name,
+            timestamp: Date.now()
+        }, (error) => {
+            if (addBtn) {
+                addBtn.disabled = false;
+                addBtn.innerHTML = `<i class="fa-solid fa-plus"></i> <span>إضافة موظف</span>`;
+            }
+
+            if (error) {
+                console.error("فشل إضافة الموظف سحابياً:", error);
+                alert("حدث خطأ أثناء حفظ الاسم سحابياً: " + error.message);
+            } else {
+                input.value = "";
+                alert(`تمت إضافة الموظف (${name}) بنجاح! يمكنه الآن الحجز واختيار اسمه من أي هاتف.`);
+                renderEmployeesManagementList();
+            }
+        });
+    } else {
+        // إضافة محلية
+        const localId = 'emp_' + Date.now();
+        if (!appState.customEmployees) appState.customEmployees = [];
+        appState.customEmployees.push({ id: localId, name: name });
+        saveLocalCustomEmployees();
+        
+        if (addBtn) {
+            addBtn.disabled = false;
+            addBtn.innerHTML = `<i class="fa-solid fa-plus"></i> <span>إضافة موظف</span>`;
+        }
+        input.value = "";
+        alert(`تمت إضافة الموظف (${name}) بنجاح محلياً.`);
+        renderEmployeesManagementList();
+    }
+}
+
+// حذف موظف من القائمة بواسطة المشرف
+function deleteEmployee(name, customId) {
+    if (!appState.isAdminMode) {
+        const password = prompt(`لحذف الموظف (${name})، يرجى إدخال رمز مرور المشرف:`);
+        if (password === null) return;
+        if (password !== appState.adminPasscode) {
+            alert("رمز مرور المشرف غير صحيح. تم رفض الحذف.");
+            return;
+        }
+        enterAdminMode();
+    }
+
+    const ok = confirm(`هل أنت متأكد من حذف الموظف (${name}) من قائمة موظفي المركز المعتمدة؟\n(لن يتمكن الموظف من تقديم حجوزات جديدة بعد الحذف)`);
+    if (!ok) return;
+
+    if (customId) {
+        // حذف موظف مضاف ديناميكياً
+        if (appState.dbMode === 'firebase' && appState.isFirebaseInitialized && appState.customEmployeesRef) {
+            appState.customEmployeesRef.child(customId).remove((error) => {
+                if (error) {
+                    alert("خطأ أثناء حذف الموظف سحابياً: " + error.message);
+                } else {
+                    alert(`تم حذف الموظف (${name}) بنجاح.`);
+                }
+            });
+        } else {
+            appState.customEmployees = (appState.customEmployees || []).filter(e => e.id !== customId);
+            saveLocalCustomEmployees();
+            renderEmployeesManagementList();
+            alert(`تم حذف الموظف (${name}) بنجاح.`);
+        }
+    } else {
+        // استبعاد موظف من القائمة الافتراضية
+        if (!appState.deletedOfficialEmployees) appState.deletedOfficialEmployees = [];
+        if (!appState.deletedOfficialEmployees.includes(name)) {
+            appState.deletedOfficialEmployees.push(name);
+        }
+
+        if (appState.dbMode === 'firebase' && appState.isFirebaseInitialized && appState.deletedOfficialRef) {
+            appState.deletedOfficialRef.set(appState.deletedOfficialEmployees, (error) => {
+                if (error) {
+                    alert("خطأ أثناء استبعاد الموظف سحابياً: " + error.message);
+                } else {
+                    alert(`تم استبعاد الموظف (${name}) بنجاح.`);
+                }
+            });
+        } else {
+            saveLocalDeletedOfficialEmployees();
+            renderEmployeesManagementList();
+            alert(`تم استبعاد الموظف (${name}) بنجاح.`);
+        }
+    }
 }
